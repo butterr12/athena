@@ -78,8 +78,9 @@ const stopCapture = () => {
 
     const json = await res.json();
 
-    const newDesc = `${json.model1}: ${json.caption1}
-    ${json.model2}: ${json.caption2}`;
+    const newDesc = `${capitalize(json.model1)}: ${cleanCaption(json.caption1)}
+    ${capitalize(json.model2)}: ${cleanCaption(json.caption2)}`;
+
 
     if (newDesc !== description) {
       setDescription(newDesc);
@@ -88,6 +89,22 @@ const stopCapture = () => {
     console.error(err);
     setDescription("Error fetching description");
   }
+};
+
+const capitalize = (s: string) =>
+  s ? s.charAt(0).toUpperCase() + s.slice(1) : s;
+
+const cleanCaption = (s: string) => {
+  if (!s) return "";
+
+  let text = s
+    .replace(/[^a-zA-Z0-9\s]/g, "") 
+    .replace(/\s+/g, " ")
+    .trim();
+
+  text = capitalize(text);
+
+  return text.endsWith(".") ? text : `${text}.`;
 };
 
 
