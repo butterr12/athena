@@ -77,21 +77,19 @@ const stopCapture = () => {
     });
 
     const json = await res.json();
-    let newDesc = "No description returned";
-    if (json.results && json.results.length > 0) {
-      newDesc = json.results[0].description;
-    }
+
+    const newDesc = `${json.model1}: ${json.caption1}
+    ${json.model2}: ${json.caption2}`;
 
     if (newDesc !== description) {
       setDescription(newDesc);
-      setFlash(true);
-      setTimeout(() => setFlash(false), 800); // flash for 0.8s
     }
   } catch (err) {
     console.error(err);
     setDescription("Error fetching description");
   }
 };
+
 
 
   useEffect(() => {
@@ -131,13 +129,12 @@ const stopCapture = () => {
       )}
 
       {description && (
-      <div
-        className={`mt-4 p-4 rounded-lg max-w-4xl text-left transition-colors duration-500 ${
-          flash ? "bg-green-600 text-white" : "bg-gray-900 bg-opacity-70 text-white"
-        }`}
-      >
-        {description}
+      <div className="mt-4 p-4 rounded-lg max-w-4xl text-left bg-gray-900 bg-opacity-70 text-white">
+        {description.split("\n").map((line, i) => (
+          <div key={i}>{line}</div>
+        ))}
       </div>
+
       
       // <div
       //   className="mt-4 p-4 rounded-lg max-w-4xl text-left bg-gray-900 bg-opacity-70 text-white"
