@@ -1,65 +1,153 @@
-import Image from "next/image";
+"use client";
+import { useState, useRef, useEffect } from "react";
 
-export default function Home() {
+export default function HomePage() {
+  const [imageSrc, setImageSrc] = useState<string | null>(null);
+  const [capturing, setCapturing] = useState(false);
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const intervalRef = useRef<number | null>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+  const interval = 5000; 
+  const [description, setDescription] = useState<string | null>(null);
+const capturingRef = useRef(false);
+const [flash, setFlash] = useState(false);
+
+
+
+
+const startCapture = async () => {
+  try {
+    const stream = await navigator.mediaDevices.getDisplayMedia({ video: true });
+    streamRef.current = stream;
+    if (videoRef.current) {
+      videoRef.current.srcObject = stream;
+      await videoRef.current.play();
+
+      // wait until video metadata is loaded
+      await new Promise<void>((resolve) => {
+        if (videoRef.current!.videoWidth && videoRef.current!.videoHeight) {
+          resolve();
+        } else {
+          videoRef.current!.onloadedmetadata = () => resolve();
+        }
+      });
+    }
+
+    setCapturing(true);
+    capturingRef.current = true;
+
+    const captureLoop = async () => {
+      if (!capturingRef.current || !videoRef.current) return;
+
+      const canvas = document.createElement("canvas");
+      canvas.width = videoRef.current.videoWidth;
+      canvas.height = videoRef.current.videoHeight;
+      canvas.getContext("2d")!.drawImage(videoRef.current, 0, 0);
+      const dataUrl = canvas.toDataURL("image/png");
+      setImageSrc(dataUrl);
+
+      await sendForDescription(dataUrl);
+
+      if (capturingRef.current) captureLoop();
+    };
+
+    captureLoop();
+  } catch (err) {
+    console.error(err);
+  }
+};
+
+
+const stopCapture = () => {
+  capturingRef.current = false;
+  setCapturing(false);
+  if (streamRef.current) streamRef.current.getTracks().forEach(track => track.stop());
+};
+
+
+  const sendForDescription = async (dataUrl: string) => {
+  try {
+    const blob = await (await fetch(dataUrl)).blob();
+    const formData = new FormData();
+    formData.append("files", blob, "screenshot.png");
+
+    const res = await fetch("http://localhost:8000/describe/", {
+      method: "POST",
+      body: formData,
+    });
+
+    const json = await res.json();
+    let newDesc = "No description returned";
+    if (json.results && json.results.length > 0) {
+      newDesc = json.results[0].description;
+    }
+
+    if (newDesc !== description) {
+      setDescription(newDesc);
+      setFlash(true);
+      setTimeout(() => setFlash(false), 800); // flash for 0.8s
+    }
+  } catch (err) {
+    console.error(err);
+    setDescription("Error fetching description");
+  }
+};
+
+
+  useEffect(() => {
+    return () => stopCapture(); // cleanup on unmount
+  }, []);
+
   return (
-    <div className="flex min-h-screen items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex min-h-screen w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the page.tsx file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
+    <main className="min-h-screen bg-black flex flex-col items-center justify-center p-6">
+      <div className="right-circle"></div>
+      <h1 className="text-4xl font-extrabold mb-6 text-white">
+        Project ATHENA
+      </h1>
+
+      {!capturing && (
+        <button onClick={startCapture} className="glow-button">
+          Start Capture
+        </button>
+      )}
+
+      {capturing && (
+        <button onClick={stopCapture} className="glow-button" style={{ background: 'red' }}>
+          Stop Capture
+        </button>
+      )}
+
+      {imageSrc && (
+        <div className="mt-6 max-w-4xl w-full border border-gray-700 rounded-xl overflow-hidden shadow-xl relative">
+          <img
+            src={imageSrc}
+            alt="Screenshot"
+            className="w-full h-auto object-contain"
+          />
+          <div className="absolute top-2 right-2 bg-gray-900 bg-opacity-70 text-white px-3 py-1 rounded-lg text-sm">
+            Screenshot
+          </div>
         </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
-        </div>
-      </main>
-    </div>
+      )}
+
+      {description && (
+      <div
+        className={`mt-4 p-4 rounded-lg max-w-4xl text-left transition-colors duration-500 ${
+          flash ? "bg-green-600 text-white" : "bg-gray-900 bg-opacity-70 text-white"
+        }`}
+      >
+        {description}
+      </div>
+      
+      // <div
+      //   className="mt-4 p-4 rounded-lg max-w-4xl text-left bg-gray-900 bg-opacity-70 text-white"
+      // >
+      //   {description}
+      // </div>
+    )}
+
+
+      <video ref={videoRef} style={{ display: "none" }} />
+    </main>
   );
 }

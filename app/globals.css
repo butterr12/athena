@@ -19,8 +19,78 @@
   }
 }
 
+
 body {
-  background: var(--background);
-  color: var(--foreground);
+  position: relative;
+  background-color: #0a0a0a;
+  color: #ededed;
   font-family: Arial, Helvetica, sans-serif;
+  margin: 0;
+  padding: 0;
+  min-height: 100vh;
 }
+
+/* Right-side large circle as part of background */
+body::before {
+  content: "";
+  position: fixed;           /* stays fixed to viewport */
+  top: 50%;                  /* vertical center */
+  right: -200px;             /* push slightly offscreen */
+  transform: translateY(-50%);
+  width: 1200px;             /* fixed large size */
+  height: 1200px;            /* fixed large size */
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(117, 99, 246, 0.5) 0%, rgba(117, 99, 246, 0) 70%);
+  pointer-events: none;      /* does not block clicks */
+  z-index: 0;                /* behind content */
+}
+
+
+
+
+.glow-button {
+  width: 200px;
+  height: 50px;
+  font-size: 16px;
+  line-height: 50px;
+  border-radius: 25px;
+  background: #0E101C; /* keep dark background */
+  color: #FFFFFF;
+  font-family: 'Inter', sans-serif;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  border: 2px solid rgba(138, 43, 226, 0.8); /* violet border */
+  cursor: pointer;
+  transition: all 0.3s ease;
+}
+
+.glow-button:hover {
+  border-color: rgba(0, 191, 255, 0.8); /* blue on hover */
+  box-shadow: 0 0 10px rgba(138, 43, 226, 0.8),
+              0 0 20px rgba(0, 191, 255, 0.7); /* neon glow */
+}
+
+/* Decorative circle fixed to the right */
+.right-circle {
+  position: fixed;      /* fixed to viewport */
+  top: 50%;             /* vertically center */
+  right: 100px;             /* always at the right edge */
+  transform: translateY(-50%); /* vertical centering */
+  width: 70vw;          /* responsive width relative to viewport */
+  height: 70vw;         /* keep it square */
+  max-width: 900px;     /* optional max size */
+  max-height: 900px;    /* optional max size */
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(117, 99, 246, 0.1) 0%, rgba(117, 99, 246, 0) 70%);
+  pointer-events: none; /* don't block clicks */
+  z-index: 0;           /* behind content */
+}
+
+
+
+
+
+
