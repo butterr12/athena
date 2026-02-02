@@ -96,7 +96,7 @@ const stopCapture = () => {
     }
   } catch (err) {
     console.error(err);
-    setDescription("Error fetching description");
+    setDescription("Server not running. Enable the FastAPI server to fetch captions.");
   }
 };
 
