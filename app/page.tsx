@@ -23,7 +23,6 @@ const startCapture = async () => {
       videoRef.current.srcObject = stream;
       await videoRef.current.play();
 
-      // wait until video metadata is loaded
       await new Promise<void>((resolve) => {
         if (videoRef.current!.videoWidth && videoRef.current!.videoHeight) {
           resolve();
@@ -44,11 +43,22 @@ const startCapture = async () => {
       canvas.height = videoRef.current.videoHeight;
       canvas.getContext("2d")!.drawImage(videoRef.current, 0, 0);
       const dataUrl = canvas.toDataURL("image/png");
+      
+      // 1. Show the NEW image immediately
       setImageSrc(dataUrl);
 
+      // 2. Wipe the OLD text immediately (Fixes mismatch)
+      setDescription("Athena is thinking...");
+
+      // 3. Get the new description
       await sendForDescription(dataUrl);
 
-      if (capturingRef.current) captureLoop();
+      // 4. PAUSE HERE so you can actually read the new description 
+      // (Fixes the "I can't see it" issue)
+      if (capturingRef.current) {
+        await new Promise(resolve => setTimeout(resolve, 13000));
+        captureLoop();
+      }
     };
 
     captureLoop();
@@ -71,7 +81,7 @@ const stopCapture = () => {
     const formData = new FormData();
     formData.append("files", blob, "screenshot.png");
 
-    const res = await fetch("http://localhost:8000/describe/", {
+    const res = await fetch("http://localhost:8080/describe/", {
       method: "POST",
       body: formData,
     });
