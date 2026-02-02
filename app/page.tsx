@@ -54,9 +54,8 @@ const startCapture = async () => {
       await sendForDescription(dataUrl);
 
       // 4. PAUSE HERE so you can actually read the new description 
-      // (Fixes the "I can't see it" issue)
       if (capturingRef.current) {
-        await new Promise(resolve => setTimeout(resolve, 13000));
+        await new Promise(resolve => setTimeout(resolve, 13000)); //13 seconds, change lng if trip
         captureLoop();
       }
     };
