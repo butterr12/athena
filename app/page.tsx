@@ -297,7 +297,7 @@ const cleanCaption = (s: string) => {
               <div
                 key="loading-scan"
                 className="scan-line-vertical scan-line-vertical--loop"
-                style={{ animationDelay: 0 }}
+                style={{ animationDelay: "0s" }}
               />
               <div className="absolute bottom-4 left-0 right-0 z-20 flex justify-center">
                 <span className="text-gray-200 text-sm font-medium">Scanning image</span>
