@@ -314,8 +314,8 @@ const cleanCaption = (s: string) => {
           const boxSize = screenshotSize
             ? { width: screenshotSize.width * PIPELINE_BOX_SCALE, height: screenshotSize.height * PIPELINE_BOX_SCALE }
             : pipelineCellSize;
-          const ARROW_COL = "2.5rem";
-          const ARROW_ROW = "2rem";
+          const ARROW_COL = "3rem";
+          const ARROW_ROW = "3rem";
           const gridCols = boxSize
             ? `${boxSize.width}px ${ARROW_COL} ${boxSize.width}px ${ARROW_COL} ${boxSize.width}px ${ARROW_COL} ${boxSize.width}px`
             : `1fr ${ARROW_COL} 1fr ${ARROW_COL} 1fr ${ARROW_COL} 1fr`;
@@ -349,7 +349,7 @@ const cleanCaption = (s: string) => {
                   return (
                     <div
                       key={`arrow-${cell.row}-${cell.col}`}
-                      className="flex items-center justify-center text-white text-3xl font-bold pointer-events-none"
+                      className="flex items-center justify-center text-white text-5xl font-bold pointer-events-none"
                       style={{ gridColumn: cell.col + 1, gridRow: cell.row + 1 }}
                     >
                       {cell.arrow}
