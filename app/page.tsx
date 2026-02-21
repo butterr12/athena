@@ -307,85 +307,112 @@ const cleanCaption = (s: string) => {
         </div>
       )}
 
-      {/* Image Enhancement Pipeline: 2x4 grid, boxes = screenshot dimensions scaled down (~30%) */}
+      {/* Image Enhancement Pipeline: 7x3 grid so arrows have their own space between boxes */}
       <section className="mt-8 w-full max-w-6xl">
         <h2 className="text-xl font-semibold text-white mb-3">Image Enhancement Pipeline</h2>
-        <div className="grid grid-cols-4 grid-rows-2 gap-3">
-          {(() => {
-            const boxSize = screenshotSize
-              ? { width: screenshotSize.width * PIPELINE_BOX_SCALE, height: screenshotSize.height * PIPELINE_BOX_SCALE }
-              : pipelineCellSize;
-            return [
-            { row: 0, col: 0, type: "input" as const },
-            { row: 0, col: 1, stepIndex: 0 },
-            { row: 0, col: 2, stepIndex: 1 },
-            { row: 0, col: 3, stepIndex: 2 },
-            { row: 1, col: 0, stepIndex: 6 },
-            { row: 1, col: 1, stepIndex: 5 },
-            { row: 1, col: 2, stepIndex: 4 },
-            { row: 1, col: 3, stepIndex: 3 },
-          ].map((slot) => {
-            if (slot.type === "input") {
-              return (
-                <div
-                  key="input"
-                  ref={pipelineCellRef}
-                  className="relative rounded-xl border border-gray-700 overflow-visible bg-gray-900/60 min-h-[140px] flex flex-col"
-                  style={boxSize ? { width: boxSize.width, height: boxSize.height } : undefined}
-                >
-                  <div className="absolute inset-0 rounded-xl overflow-hidden">
-                    {imageSrc ? (
-                      <img src={imageSrc} alt="Screenshot" className="w-full h-full object-fill" />
+        {(() => {
+          const boxSize = screenshotSize
+            ? { width: screenshotSize.width * PIPELINE_BOX_SCALE, height: screenshotSize.height * PIPELINE_BOX_SCALE }
+            : pipelineCellSize;
+          const ARROW_COL = "2.5rem";
+          const ARROW_ROW = "2rem";
+          const gridCols = boxSize
+            ? `${boxSize.width}px ${ARROW_COL} ${boxSize.width}px ${ARROW_COL} ${boxSize.width}px ${ARROW_COL} ${boxSize.width}px`
+            : `1fr ${ARROW_COL} 1fr ${ARROW_COL} 1fr ${ARROW_COL} 1fr`;
+          const gridRows = boxSize
+            ? `${boxSize.height}px ${ARROW_ROW} ${boxSize.height}px`
+            : `auto ${ARROW_ROW} auto`;
+          const cells: { type: "input" | "step" | "arrow"; row: number; col: number; stepIndex?: number; arrow?: "→" | "←" | "↓" }[] = [
+            { type: "input", row: 0, col: 0 },
+            { type: "arrow", row: 0, col: 1, arrow: "→" },
+            { type: "step", row: 0, col: 2, stepIndex: 0 },
+            { type: "arrow", row: 0, col: 3, arrow: "→" },
+            { type: "step", row: 0, col: 4, stepIndex: 1 },
+            { type: "arrow", row: 0, col: 5, arrow: "→" },
+            { type: "step", row: 0, col: 6, stepIndex: 2 },
+            { type: "arrow", row: 1, col: 6, arrow: "↓" },
+            { type: "step", row: 2, col: 0, stepIndex: 6 },
+            { type: "arrow", row: 2, col: 1, arrow: "←" },
+            { type: "step", row: 2, col: 2, stepIndex: 5 },
+            { type: "arrow", row: 2, col: 3, arrow: "←" },
+            { type: "step", row: 2, col: 4, stepIndex: 4 },
+            { type: "arrow", row: 2, col: 5, arrow: "←" },
+            { type: "step", row: 2, col: 6, stepIndex: 3 },
+          ];
+          return (
+            <div
+              className="grid items-center justify-items-center"
+              style={{ gridTemplateColumns: gridCols, gridTemplateRows: gridRows }}
+            >
+              {cells.map((cell, idx) => {
+                if (cell.type === "arrow") {
+                  return (
+                    <div
+                      key={`arrow-${cell.row}-${cell.col}`}
+                      className="flex items-center justify-center text-white text-3xl font-bold pointer-events-none"
+                      style={{ gridColumn: cell.col + 1, gridRow: cell.row + 1 }}
+                    >
+                      {cell.arrow}
+                    </div>
+                  );
+                }
+                if (cell.type === "input") {
+                  return (
+                    <div
+                      key="input"
+                      ref={pipelineCellRef}
+                      className="relative rounded-xl border border-gray-700 overflow-hidden bg-gray-900/60 min-h-[140px] w-full h-full flex flex-col"
+                      style={{
+                        gridColumn: 1,
+                        gridRow: 1,
+                        ...(boxSize ? { width: boxSize.width, height: boxSize.height } : {}),
+                      }}
+                    >
+                      {imageSrc ? (
+                        <img src={imageSrc} alt="Screenshot" className="w-full h-full object-fill" />
+                      ) : (
+                        <div className="w-full h-full flex items-center justify-center text-gray-500 text-xs">No capture</div>
+                      )}
+                      <div className="absolute top-2 left-2 z-10 bg-gray-900/80 text-white text-xs font-medium px-2 py-1 rounded">
+                        Screenshot
+                      </div>
+                    </div>
+                  );
+                }
+                const i = cell.stepIndex!;
+                const stepName = PIPELINE_STEP_NAMES[i];
+                const stepLabel = PIPELINE_STEP_LABELS[i];
+                const isCurrent = i === currentStepIndex;
+                const isRevealed = i <= currentStepIndex && !!processingSteps[i]?.url;
+                return (
+                  <div
+                    key={`step-${i}`}
+                    className="relative rounded-xl border overflow-hidden bg-gray-900/80 min-h-[140px] w-full h-full flex flex-col"
+                    style={{
+                      gridColumn: cell.col + 1,
+                      gridRow: cell.row + 1,
+                      borderColor: isCurrent ? "rgba(0, 191, 255, 0.6)" : "rgb(55 65 81)",
+                      ...(boxSize ? { width: boxSize.width, height: boxSize.height } : {}),
+                    }}
+                  >
+                    {isRevealed ? (
+                      <>
+                        <img src={processingSteps[i].url} alt={stepName} className="absolute inset-0 w-full h-full object-fill" />
+                        {isCurrent && <div key={`scan-${i}`} className="scan-line-vertical scan-line-vertical--once" />}
+                        <div className="absolute top-2 left-2 z-10 bg-gray-900/80 text-white text-xs font-medium px-2 py-1 rounded">{stepLabel}</div>
+                      </>
                     ) : (
-                      <div className="w-full h-full flex items-center justify-center text-gray-500 text-xs">No capture</div>
+                      <div className="w-full h-full flex flex-col items-center justify-center p-2 text-center">
+                        <span className="text-gray-500 text-xs font-medium">Step {i + 1}/7</span>
+                        <span className="text-gray-500 text-[10px] leading-tight mt-0.5">{stepName}</span>
+                      </div>
                     )}
                   </div>
-                  <div className="absolute top-2 left-2 z-10 bg-gray-900/80 text-white text-xs font-medium px-2 py-1 rounded">
-                    Screenshot
-                  </div>
-                  <div className="absolute -right-8 top-1/2 -translate-y-1/2 z-20 px-2 text-white text-3xl font-bold pointer-events-none">→</div>
-                </div>
-              );
-            }
-            const i = slot.stepIndex!;
-            const stepName = PIPELINE_STEP_NAMES[i];
-            const stepLabel = PIPELINE_STEP_LABELS[i];
-            const isCurrent = i === currentStepIndex;
-            const isRevealed = i <= currentStepIndex && processingSteps[i]?.url;
-            const arrowRight = slot.row === 0 && slot.col < 3;
-            const arrowDown = slot.row === 0 && slot.col === 3;
-            const arrowLeft = slot.row === 1 && slot.col > 0;
-            return (
-              <div
-                key={`${slot.row}-${slot.col}`}
-                className="relative rounded-xl border overflow-visible bg-gray-900/80 min-h-[140px] flex flex-col"
-                style={{
-                  borderColor: isCurrent ? "rgba(0, 191, 255, 0.6)" : "rgb(55 65 81)",
-                  ...(boxSize ? { width: boxSize.width, height: boxSize.height } : {}),
-                }}
-              >
-                <div className="absolute inset-0 rounded-xl overflow-hidden">
-                  {isRevealed ? (
-                    <>
-                      <img src={processingSteps[i].url} alt={stepName} className="absolute inset-0 w-full h-full object-fill" />
-                      {isCurrent && <div key={`scan-${i}`} className="scan-line-vertical scan-line-vertical--once" />}
-                      <div className="absolute top-2 left-2 z-10 bg-gray-900/80 text-white text-xs font-medium px-2 py-1 rounded">{stepLabel}</div>
-                    </>
-                  ) : (
-                    <div className="w-full h-full flex flex-col items-center justify-center p-2 text-center">
-                      <span className="text-gray-500 text-xs font-medium">Step {i + 1}/7</span>
-                      <span className="text-gray-500 text-[10px] leading-tight mt-0.5">{stepName}</span>
-                    </div>
-                  )}
-                </div>
-                {arrowRight && <div className="absolute -right-8 top-1/2 -translate-y-1/2 z-20 px-2 text-white text-3xl font-bold pointer-events-none">→</div>}
-                {arrowDown && <div className="absolute bottom-0 left-1/2 -translate-x-1/2 translate-y-5 z-20 py-2 text-white text-3xl font-bold pointer-events-none">↓</div>}
-                {arrowLeft && <div className="absolute -left-8 top-1/2 -translate-y-1/2 z-20 px-2 text-white text-3xl font-bold pointer-events-none">←</div>}
-              </div>
-            );
-          });
-          })()}
-        </div>
+                );
+              })}
+            </div>
+          );
+        })()}
       </section>
 
       {processingPhase === "done" &&
