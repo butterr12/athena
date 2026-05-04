@@ -16,13 +16,21 @@ interface ModelResult {
 
 // Split "Some caption text. (Inference Time: 2.56s)" into parts
 function parseCaption(raw: string): { text: string; inferenceTime: string | null } {
-  // Match the appended "(Inference Time: X.XXs)" that the server adds
   const match = raw.match(/^(.*?)\s*\(Inference Time:\s*([\d.]+s?)\)\s*$/s);
   if (match) {
     return { text: match[1].trim(), inferenceTime: match[2] };
   }
   return { text: raw.trim(), inferenceTime: null };
 }
+
+// Helper: convert a File to a data URL
+const fileToDataUrl = (file: File): Promise<string> =>
+  new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result as string);
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
 
 export default function HomePage() {
   const [imageSrc, setImageSrc] = useState<string | null>(null);
@@ -32,13 +40,20 @@ export default function HomePage() {
   const [description, setDescription] = useState<string | null>(null);
   const capturingRef = useRef(false);
 
-  // Single processing frame: loading → sequential steps → final image + caption
+  // Processing pipeline
   const [processingPhase, setProcessingPhase] = useState<ProcessingPhase>("idle");
   const [processingSteps, setProcessingSteps] = useState<ProcessingStep[]>([]);
   const [currentStepIndex, setCurrentStepIndex] = useState(0);
   const [modelResults, setModelResults] = useState<ModelResult[]>([]);
   const stepIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const STEP_DURATION_MS = 100; // fast reveal
+
+  // Upload support
+  const [uploadedFileName, setUploadedFileName] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Zoom modal state
+  const [zoomedStep, setZoomedStep] = useState<ProcessingStep | null>(null);
 
   const PIPELINE_STEP_NAMES = [
     "Attenuated Channel Compensation (ACC)",
@@ -59,12 +74,6 @@ export default function HomePage() {
     "Gamma Correction",
     "High-Pass Fusion",
   ] as const;
-
-  const screenshotRef = useRef<HTMLDivElement>(null);
-  const [screenshotSize, setScreenshotSize] = useState<{ width: number; height: number } | null>(null);
-  const pipelineCellRef = useRef<HTMLDivElement>(null);
-  const [pipelineCellSize, setPipelineCellSize] = useState<{ width: number; height: number } | null>(null);
-  const PIPELINE_BOX_SCALE = 0.30;
 
   const startCapture = async () => {
     try {
@@ -134,7 +143,7 @@ export default function HomePage() {
       const formData = new FormData();
       formData.append("files", blob, "screenshot.png");
 
-      const res = await fetch("http://localhost:80/describe/", {
+      const res = await fetch("http://localhost:8080/describe/", {
         method: "POST",
         body: formData,
         signal: controller.signal,
@@ -207,8 +216,6 @@ export default function HomePage() {
   const capitalize = (s: string) =>
     s ? s.charAt(0).toUpperCase() + s.slice(1) : s;
 
-  // Strips punctuation/symbols but NOT the caption text itself
-  // NOTE: do NOT run this on the raw server string — parse inference time first
   const cleanCaption = (s: string) => {
     if (!s) return "";
     let text = s
@@ -219,37 +226,40 @@ export default function HomePage() {
     return text.endsWith(".") ? text : `${text}.`;
   };
 
-  // Match processing frame size to screenshot box
-  useEffect(() => {
-    const el = screenshotRef.current;
-    if (!el) return;
-    const updateSize = () => {
-      const rect = el.getBoundingClientRect();
-      if (rect.width > 0 && rect.height > 0) {
-        setScreenshotSize({ width: rect.width, height: rect.height });
-      }
-    };
-    updateSize();
-    const observer = new ResizeObserver(updateSize);
-    observer.observe(el);
-    return () => observer.disconnect();
-  }, [imageSrc]);
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
 
-  // Match pipeline grid cell size to (1,1) cell
-  useEffect(() => {
-    const el = pipelineCellRef.current;
-    if (!el) return;
-    const updateSize = () => {
-      const rect = el.getBoundingClientRect();
-      if (rect.width > 0 && rect.height > 0) {
-        setPipelineCellSize({ width: rect.width, height: rect.height });
-      }
-    };
-    updateSize();
-    const observer = new ResizeObserver(updateSize);
-    observer.observe(el);
-    return () => observer.disconnect();
-  }, [imageSrc]);
+    // Stop screen capture if active
+    if (capturingRef.current) {
+      stopCapture();
+    }
+
+    // Reset state
+    setImageSrc(null);
+    setDescription(null);
+    setModelResults([]);
+    setProcessingPhase("idle");
+    setProcessingSteps([]);
+    setCurrentStepIndex(0);
+
+    try {
+      const dataUrl = await fileToDataUrl(file);
+      setUploadedFileName(file.name);
+      setImageSrc(dataUrl);
+      setProcessingPhase("loading");
+
+      const stepsCount = await sendForDescription(dataUrl);
+      console.log("Upload processed, steps:", stepsCount);
+    } catch (err) {
+      console.error("Upload failed:", err);
+      setProcessingPhase("done");
+      setDescription("Failed to process uploaded image.");
+    }
+
+    // Clear the file input so the same file can be reselected
+    if (fileInputRef.current) fileInputRef.current.value = "";
+  };
 
   // Reveal pipeline steps one by one after API returns
   useEffect(() => {
@@ -281,6 +291,15 @@ export default function HomePage() {
     modelResults.length > 0 &&
     (processingSteps.length === 0 || currentStepIndex >= processingSteps.length - 1);
 
+  // Close modal on Escape key
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setZoomedStep(null);
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, []);
+
   return (
     <main className="min-h-screen bg-black flex flex-col items-center justify-center p-6">
       <div className="right-circle"></div>
@@ -288,27 +307,42 @@ export default function HomePage() {
         Project ATHENA
       </h1>
 
-      {!capturing && (
-        <button onClick={startCapture} className="glow-button">
-          Start Capture
-        </button>
-      )}
+      {/* Control buttons: screen capture and upload */}
+      <div className="flex gap-4 flex-wrap justify-center">
+        {!capturing ? (
+          <button onClick={startCapture} className="glow-button">
+            Start Capture
+          </button>
+        ) : (
+          <button onClick={stopCapture} className="glow-button" style={{ background: "red" }}>
+            Stop Capture
+          </button>
+        )}
 
-      {capturing && (
-        <button onClick={stopCapture} className="glow-button" style={{ background: "red" }}>
-          Stop Capture
+        {/* Upload button */}
+        <button
+          onClick={() => fileInputRef.current?.click()}
+          disabled={capturing}
+          className="glow-button"
+        >
+          Upload Image
         </button>
-      )}
+
+        <input
+          type="file"
+          accept="image/*"
+          ref={fileInputRef}
+          onChange={handleFileUpload}
+          className="hidden"
+        />
+      </div>
 
       {/* Screenshot box */}
       {imageSrc && (
-        <div
-          ref={screenshotRef}
-          className="mt-6 max-w-4xl w-full border border-gray-700 rounded-xl overflow-hidden shadow-xl relative"
-        >
+        <div className="mt-6 max-w-4xl w-full border border-gray-700 rounded-xl overflow-hidden shadow-xl relative">
           <img src={imageSrc} alt="Screenshot" className="w-full h-auto object-contain" />
           <div className="absolute top-2 right-2 bg-gray-900 bg-opacity-70 text-white px-3 py-1 rounded-lg text-sm z-10">
-            Screenshot
+            {uploadedFileName ? `Upload: ${uploadedFileName}` : "Screenshot"}
           </div>
           {processingPhase === "loading" && (
             <>
@@ -325,131 +359,71 @@ export default function HomePage() {
         </div>
       )}
 
-      {/* Image Enhancement Pipeline */}
-      <section className="mt-8 w-full max-w-6xl">
-        <h2 className="text-xl font-semibold text-white mb-3">Image Enhancement Pipeline</h2>
-        {(() => {
-          const boxSize = screenshotSize
-            ? { width: screenshotSize.width * PIPELINE_BOX_SCALE, height: screenshotSize.height * PIPELINE_BOX_SCALE }
-            : pipelineCellSize;
-          const ARROW_COL = "3rem";
-          const ARROW_ROW = "3rem";
-          const gridCols = boxSize
-            ? `${boxSize.width}px ${ARROW_COL} ${boxSize.width}px ${ARROW_COL} ${boxSize.width}px ${ARROW_COL} ${boxSize.width}px`
-            : `1fr ${ARROW_COL} 1fr ${ARROW_COL} 1fr ${ARROW_COL} 1fr`;
-          const gridRows = boxSize
-            ? `${boxSize.height}px ${ARROW_ROW} ${boxSize.height}px`
-            : `auto ${ARROW_ROW} auto`;
-          const cells: {
-            type: "input" | "step" | "arrow";
-            row: number;
-            col: number;
-            stepIndex?: number;
-            arrow?: "→" | "←" | "↓";
-          }[] = [
-            { type: "input", row: 0, col: 0 },
-            { type: "arrow", row: 0, col: 1, arrow: "→" },
-            { type: "step",  row: 0, col: 2, stepIndex: 0 },
-            { type: "arrow", row: 0, col: 3, arrow: "→" },
-            { type: "step",  row: 0, col: 4, stepIndex: 1 },
-            { type: "arrow", row: 0, col: 5, arrow: "→" },
-            { type: "step",  row: 0, col: 6, stepIndex: 2 },
-            { type: "arrow", row: 1, col: 6, arrow: "↓" },
-            { type: "step",  row: 2, col: 0, stepIndex: 6 },
-            { type: "arrow", row: 2, col: 1, arrow: "←" },
-            { type: "step",  row: 2, col: 2, stepIndex: 5 },
-            { type: "arrow", row: 2, col: 3, arrow: "←" },
-            { type: "step",  row: 2, col: 4, stepIndex: 4 },
-            { type: "arrow", row: 2, col: 5, arrow: "←" },
-            { type: "step",  row: 2, col: 6, stepIndex: 3 },
-          ];
-          return (
-            <div
-              className="grid items-center justify-items-center"
-              style={{ gridTemplateColumns: gridCols, gridTemplateRows: gridRows }}
-            >
-              {cells.map((cell) => {
-                if (cell.type === "arrow") {
-                  return (
-                    <div
-                      key={`arrow-${cell.row}-${cell.col}`}
-                      className="flex items-center justify-center text-white text-5xl font-bold pointer-events-none"
-                      style={{ gridColumn: cell.col + 1, gridRow: cell.row + 1 }}
-                    >
-                      {cell.arrow}
-                    </div>
-                  );
-                }
-                if (cell.type === "input") {
-                  return (
-                    <div
-                      key="input"
-                      ref={pipelineCellRef}
-                      className="relative rounded-xl border border-gray-700 overflow-hidden bg-gray-900/60 min-h-[140px] w-full h-full flex flex-col"
-                      style={{
-                        gridColumn: 1,
-                        gridRow: 1,
-                        ...(boxSize ? { width: boxSize.width, height: boxSize.height } : {}),
-                      }}
-                    >
-                      {imageSrc ? (
-                        <img src={imageSrc} alt="Screenshot" className="w-full h-full object-fill" />
-                      ) : (
-                        <div className="w-full h-full flex items-center justify-center text-gray-500 text-xs">
-                          No capture
-                        </div>
-                      )}
-                      <div className="absolute top-2 left-2 z-10 bg-gray-900/80 text-white text-xs font-medium px-2 py-1 rounded">
-                        Screenshot
-                      </div>
-                    </div>
-                  );
-                }
-                const i = cell.stepIndex!;
-                const stepName = PIPELINE_STEP_NAMES[i];
-                const stepLabel = PIPELINE_STEP_LABELS[i];
-                const isCurrent = i === currentStepIndex;
-                const isRevealed = i <= currentStepIndex && !!processingSteps[i]?.url;
-                return (
-                  <div
-                    key={`step-${i}`}
-                    className="relative rounded-xl border overflow-hidden bg-gray-900/80 min-h-[140px] w-full h-full flex flex-col"
-                    style={{
-                      gridColumn: cell.col + 1,
-                      gridRow: cell.row + 1,
-                      borderColor: isCurrent ? "rgba(0, 191, 255, 0.6)" : "rgb(55 65 81)",
-                      ...(boxSize ? { width: boxSize.width, height: boxSize.height } : {}),
-                    }}
+      {/* Image Enhancement Flowchart */}
+      {processingSteps.length > 0 && (
+        <section className="mt-8 w-full max-w-6xl">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-xl font-semibold text-white">Enhancement Pipeline</h2>
+            <span className="text-sm text-gray-400">
+              Step {currentStepIndex + 1} of {processingSteps.length}
+            </span>
+          </div>
+
+          {/* Flowchart row */}
+          <div className="flex items-center justify-center gap-1 flex-wrap">
+            {processingSteps.map((step, idx) => {
+              const label = PIPELINE_STEP_LABELS[idx] ?? step.name;
+              const fullName = PIPELINE_STEP_NAMES[idx] ?? step.name;
+              const isRevealed = idx <= currentStepIndex;
+              const isCurrent = idx === currentStepIndex;
+
+              return (
+                <div key={step.name} className="flex items-center">
+                  {/* Step node */}
+                  <button
+                    onClick={() => isRevealed && setZoomedStep(step)}
+                    disabled={!isRevealed}
+                    className={`
+                      relative w-24 h-24 rounded-xl border-2 flex flex-col items-center justify-center
+                      transition-all duration-300 group
+                      ${isCurrent ? "border-cyan-400 shadow-lg shadow-cyan-500/30" : "border-gray-700"}
+                      ${isRevealed ? "cursor-zoom-in hover:scale-105 hover:shadow-cyan-400/50" : "cursor-default opacity-70"}
+                    `}
                   >
                     {isRevealed ? (
                       <>
                         <img
-                          src={processingSteps[i].url}
-                          alt={stepName}
-                          className="absolute inset-0 w-full h-full object-fill"
+                          src={step.url}
+                          alt={fullName}
+                          className="absolute inset-0 w-full h-full object-cover rounded-xl"
                         />
                         {isCurrent && (
-                          <div key={`scan-${i}`} className="scan-line-vertical scan-line-vertical--once" />
+                          <div className="scan-line-vertical scan-line-vertical--once rounded-xl" />
                         )}
-                        <div className="absolute top-2 left-2 z-10 bg-gray-900/80 text-white text-xs font-medium px-2 py-1 rounded">
-                          {stepLabel}
+                        <div className="absolute bottom-0 left-0 right-0 bg-black/60 text-white text-[10px] font-medium py-0.5 text-center rounded-b-xl">
+                          {label}
                         </div>
                       </>
                     ) : (
-                      <div className="w-full h-full flex flex-col items-center justify-center p-2 text-center">
-                        <span className="text-gray-500 text-xs font-medium">Step {i + 1}/7</span>
-                        <span className="text-gray-500 text-[10px] leading-tight mt-0.5">{stepName}</span>
+                      <div className="text-center p-1">
+                        <span className="text-gray-600 text-xl">?</span>
+                        <p className="text-gray-500 text-[10px] mt-0.5 leading-tight">{label}</p>
                       </div>
                     )}
-                  </div>
-                );
-              })}
-            </div>
-          );
-        })()}
-      </section>
+                  </button>
 
-      {/* Model Results — shown after pipeline finishes revealing */}
+                  {/* Arrow (except after last step) */}
+                  {idx < processingSteps.length - 1 && (
+                    <div className="text-gray-600 text-2xl mx-1 select-none">→</div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </section>
+      )}
+
+      {/* Model Results */}
       {showResults && (
         <div className="mt-6 max-w-4xl w-full rounded-xl bg-gray-900/80 border border-gray-700 overflow-hidden">
           {modelResults.map((result, i) => (
@@ -457,7 +431,6 @@ export default function HomePage() {
               key={i}
               className={`px-5 py-4 ${i < modelResults.length - 1 ? "border-b border-gray-700" : ""}`}
             >
-              {/* Model name row */}
               <div className="flex items-center justify-between mb-1">
                 <span className="text-xs font-semibold text-cyan-400 uppercase tracking-wider">
                   {result.model}
@@ -466,7 +439,6 @@ export default function HomePage() {
                   ⏱ {result.inferenceTime}
                 </span>
               </div>
-              {/* Caption */}
               <p className="text-white text-sm leading-relaxed">{result.caption}</p>
             </div>
           ))}
@@ -477,6 +449,34 @@ export default function HomePage() {
       {processingPhase === "done" && modelResults.length === 0 && description && description !== "ok" && (
         <div className="mt-6 max-w-4xl w-full p-4 rounded-xl bg-gray-900/80 text-red-300 text-left border border-gray-700">
           {description}
+        </div>
+      )}
+
+      {/* Zoom Modal */}
+      {zoomedStep && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm animate-fade-in"
+          onClick={() => setZoomedStep(null)}
+        >
+          <div
+            className="relative bg-gray-900 border border-gray-700 rounded-2xl p-4 max-w-2xl w-full mx-4 animate-scale-up"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <button
+              className="absolute top-2 right-2 text-gray-400 hover:text-white text-2xl leading-none"
+              onClick={() => setZoomedStep(null)}
+            >
+              &times;
+            </button>
+            <img
+              src={zoomedStep.url}
+              alt={zoomedStep.name}
+              className="w-full h-auto rounded-xl object-contain max-h-[70vh]"
+            />
+            <p className="text-center text-white text-sm mt-3 font-medium">
+              {PIPELINE_STEP_NAMES[processingSteps.findIndex(s => s.name === zoomedStep.name)] ?? zoomedStep.name}
+            </p>
+          </div>
         </div>
       )}
 
